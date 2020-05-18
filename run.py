@@ -41,7 +41,7 @@ def common_setup(ssh_client):
     if c.PROVIDER == "AZURE":
 
         # todo only if first run
-        if c.NUM_INSTANCE > 0 or True:
+        if c.NUM_INSTANCE > 0 or True: # Execute setup even if 0 instances specified on setup commandline
             print("In common_setup, NUM_INSTANCE=" + str(c.NUM_INSTANCE))
             # add ssh key that matches the public one used during creation
             if not c.PRIVATE_KEY_NAME in ssh_client.listdir("/home/ubuntu/.ssh/"):
@@ -283,13 +283,18 @@ def setup_master(node, slaves_ip, hdfs_master):
     ssh_client = sshclient_from_node(node, ssh_key_file=c.PRIVATE_KEY_PATH, user_name='ubuntu')
     with open_cfg(mode='w') as cfg:
         current_cluster = cfg['main']['current_cluster'] 
-        app_name = cfg['main']['app_name'] if 'main' in cfg and 'app_name' in cfg['main'] else 'app'
+        app_name = cfg['main']['app_name'] if 'main' in cfg and 'app_name' in cfg['main'] else '' #'app'
         app_dir = cfg['main']['app_jar'].split("/")[0] if 'main' in cfg and 'app_jar' in cfg['main'] else \
-                        cfg['main']['appdir'] if 'main' in cfg and 'appdir' in cfg['main'] else "application"
+                        cfg['main']['appdir'] if 'main' in cfg and 'appdir' in cfg['main'] else '' # "application"
         # app_dir = cfg['main']['app_jar'].split("/")[0] if 'main' in cfg and 'app_jar' in cfg['main'] else "application"
         cfg[current_cluster] = {}
-        print("Setup Master: app_name =", app_name)
-        print("Setup Master: app_dir =", app_dir)
+        benchmark = c.CONFIG_DICT['Benchmark']['Name'] if 'main' in cfg and 'benchmark' in cfg['main'] else ''
+        if benchmark != '': 
+            print("Setup Master: BENCH_CONF=" + str(c.BENCH_CONF[benchmark]))
+        else: 
+            print("Setup Master: app_name =", app_name)
+            print("Setup Master: app_dir =", app_dir)
+        
         print("Setup Master: PublicIp=" + node.public_ips[0] + " PrivateIp=" + node.private_ips[0])
         master_private_ip = get_ip(node)
         master_public_ip = node.public_ips[0]
@@ -301,6 +306,8 @@ def setup_master(node, slaves_ip, hdfs_master):
 
     common_setup(ssh_client)
 
+    ssh_client.run("sudo mv /usr/local/spark-perf/ /home/ubuntu/")
+    ssh_client.run("sudo mv /usr/local/spark-bench/ /home/ubuntu/")
     ssh_client.run("sudo mv /usr/local/wikixmlj/ /home/ubuntu/")
 
     files = ssh_client.listdir("/home/ubuntu/")
@@ -312,6 +319,50 @@ def setup_master(node, slaves_ip, hdfs_master):
         ssh_client.run("git clone https://github.com/synhershko/wikixmlj.git wikixmlj")
         ssh_client.run(
             "cd $HOME/wikixmlj && mvn package install -Dmaven.test.skip=true && cd $HOME")  # install wikixmlj
+
+    if c.UPDATE_SPARK_PERF:
+        '''
+        if "wikixmlj" in files:
+            ssh_client.run("""cd $HOME/wikixmlj && git status | grep "up-to-date" || eval `git pull && mvn package install`""")
+            ssh_client.run("cd $HOME")
+        else:
+            ssh_client.run("git clone https://github.com/synhershko/wikixmlj.git wikixmlj")
+            ssh_client.run(
+                "cd $HOME/wikixmlj && mvn package install -Dmaven.test.skip=true && cd $HOME")  # install wikixmlj
+        '''
+        if "spark-perf" in files:
+            ssh_client.run("""cd $HOME/spark-perf && git status | grep "up-to-date" || eval `git pull && cp $HOME/spark-perf/config/config.py.template $HOME/spark-perf/config/config.py`""")
+            ssh_client.run("cd $HOME")
+        else:
+            ssh_client.run("git clone https://github.com/databricks/spark-perf.git spark-perf")
+            ssh_client.run(
+                "cp $HOME/spark-perf/config/config.py.template $HOME/spark-perf/config/config.py")
+    elif c.SKEW_TEST:
+        print("Removing default sparf-perf")
+        stdout, stderr, status = ssh_client.run("sudo rm -r ./spark-perf")
+        print(stdout, stderr)
+        print("Cloning master branch from https://github.com/gioenn/spark-perf.git")
+        stdout, stderr, status = ssh_client.run("git clone -b master --single-branch https://github.com/gioenn/spark-perf.git")
+        #print("Cloning master branch from https://github.com/DavideB/spark-perf.git")
+        #stdout, stderr, status = ssh_client.run("git clone -b master --single-branch https://github.com/DavideB/spark-perf.git")
+        #stdout, stderr, status = ssh_client.run("git clone -b log_skew --single-branch https://github.com/DavideB/spark-perf.git")
+        print(stdout, stderr)
+        '''
+        stdout, stderr, status = ssh_client.run(
+                "cp $HOME/spark-perf/config/config.py.template $HOME/spark-perf/config/config.py")
+        print(stdout, stderr)
+        stdout, stderr, status = ssh_client.run(
+                "cd $HOME/spark-perf/config && sed -i '134,137d' config.py")
+        print(stdout, stderr)
+        '''
+    if c.UPDATE_SPARK_BENCH:
+        if "spark-bench" in files:
+            ssh_client.run("""cd $HOME/spark-bench && git status | grep "up-to-date" || eval `git pull && sed -i '7s{.*{mvn package -P spark2.0{' $HOME/spark-bench/bin/build-all.sh && $HOME/spark-bench/bin/build-all.sh && cp $HOME/spark-bench/conf/env.sh.template $HOME/spark-bench/conf/env.sh`""")
+            ssh_client.run("cd $HOME")
+        else:
+            ssh_client.run("git clone https://github.com/gioenn/spark-bench.git spark-bench")
+            ssh_client.run("$HOME/spark-bench/bin/build-all.sh")  # build spark-bench
+            ssh_client.run("cp $HOME/spark-bench/conf/env.sh.template $HOME/spark-bench/conf/env.sh")  # copy spark-bench config
 
     # copia chiave privata
     if not c.PRIVATE_KEY_NAME in files:
@@ -335,7 +386,7 @@ def setup_master(node, slaves_ip, hdfs_master):
         # ssh_client.run("sudo rm -r " + c.SPARK_HOME + "work/*")
         stdout, stderr, status = ssh_client.run(
             """cd /usr/local/spark && git pull && build/mvn clean && build/mvn -T 1C -Phive -Pnetlib-lgpl -Pyarn -Phadoop-2.7 -Dhadoop.version=2.7.2 -Dscala-2.11 -DskipTests -Dmaven.test.skip=true package""")
-        #print(stdout + stderr)
+        print(stdout + stderr)
     
     print("   Cleaning up executor app logs...")
     stdout, stderr, status = ssh_client.run("sudo rm -r " + c.SPARK_HOME + "work/*")
@@ -347,19 +398,20 @@ def setup_master(node, slaves_ip, hdfs_master):
     stdout, stderr, status = ssh_client.run("sudo rm -r " + c.SPARK_2_HOME + "logs/*")
         
     if current_cluster == 'spark':
-        if app_dir in files:
-                ssh_client.run("""cd $HOME/""" + app_dir + """ && git status | grep "up-to-date" || eval `git pull && git checkout """ + c.GIT_APPLICATION_BRANCH + """ && mvn clean && mvn package `""") # update application
-                ssh_client.run("cd $HOME")
-        else:
-            ssh_client.run("git clone " + c.GIT_APPLICATION_REPO + " " +  app_dir)
-            ssh_client.run("cd $HOME/" + app_dir + " && git pull && git checkout " + c.GIT_APPLICATION_BRANCH + " && mvn package && cd $HOME")  # install application
+        if app_name != '' and app_dir != '' :
+            if app_dir in files:
+                    ssh_client.run("""cd $HOME/""" + app_dir + """ && git status | grep "up-to-date" || eval `git pull && git checkout """ + c.GIT_APPLICATION_BRANCH + """ && mvn clean && mvn package `""") # update application
+                    ssh_client.run("cd $HOME")
+            else:
+                ssh_client.run("git clone " + c.GIT_APPLICATION_REPO + " " +  app_dir)
+                ssh_client.run("cd $HOME/" + app_dir + " && git pull && git checkout " + c.GIT_APPLICATION_BRANCH + " && mvn package && cd $HOME")  # install application
         
-        if c.UPDATE_APPLICATION:
-            print("   Updating Application ", app_dir, " ...")
-            stdout, stderr, status = ssh_client.run("cd $HOME/" + app_dir + " && git pull && git checkout " + c.GIT_APPLICATION_BRANCH + " && mvn clean && mvn package ") # update application
-            print(stdout + stderr)
-            stdout, stderr, status = ssh_client.run("cd $HOME/" + app_dir + " && mvn clean && mvn package")  # install application
-            print(stdout + stderr)
+            if c.UPDATE_APPLICATION:
+                print("   Updating Application ", app_dir, " ...")
+                stdout, stderr, status = ssh_client.run("cd $HOME/" + app_dir + " && git pull && git checkout " + c.GIT_APPLICATION_BRANCH + " && mvn clean && mvn package ") # update application
+                print(stdout + stderr)
+                stdout, stderr, status = ssh_client.run("cd $HOME/" + app_dir + " && mvn clean && mvn package")  # install application
+                print(stdout + stderr)
         
         '''
         # check that line numbers to be substituted are present in file spark-defaults.conf and if not, add 11 empty comment lines
@@ -401,7 +453,9 @@ def setup_master(node, slaves_ip, hdfs_master):
             "sed -i '33s{.*{spark.memory.offHeap.size " + str(
                 c.OFF_HEAP_BYTES) + "{' " + c.SPARK_HOME + "conf/spark-defaults.conf")
         
-        print("   Changing " + app_name + " settings")
+        if benchmark != '' :
+            print("   Changing " + benchmark + " settings")
+        else: print("   Changing " + app_name + " settings")
         # DEADLINE LINE 35
         stdout, stderr, status = ssh_client.run(
             "sed -i '35s{.*{spark.control.deadline " + str(
@@ -430,6 +484,18 @@ def setup_master(node, slaves_ip, hdfs_master):
         stdout, stderr, status = ssh_client.run(
             "sed -i '56s{.*{spark.control.heuristic " + str(
                 c.HEURISTIC.value) + "{' " + c.SPARK_HOME + "conf/spark-defaults.conf")
+        
+        # CORE_ALLOCATION
+        if c.CORE_ALLOCATION != None and c.DEADLINE_ALLOCATION != None and c.STAGE_ALLOCATION != None:
+            stdout, stderr, status = ssh_client.run("sed -i '57s{.*{spark.control.stage " + str(c.STAGE_ALLOCATION) + "{' "+c.SPARK_HOME+"conf/spark-defaults.conf")
+            stdout, stderr, status = ssh_client.run("sed -i '58s{.*{spark.control.stagecores "+ str(c.CORE_ALLOCATION) +"{' "+c.SPARK_HOME + "conf/spark-defaults.conf")
+            stdout, stderr, status = ssh_client.run("sed -i '59s{.*{spark.control.stagedeadlines " + str(
+                c.DEADLINE_ALLOCATION) + "{' " + c.SPARK_HOME + "conf/spark-defaults.conf")
+        else:
+            stdout, stderr, status = ssh_client.run("sed -i '57s{.*{#stage{' " + c.SPARK_HOME + "conf/spark-defaults.conf")
+            stdout, stderr, status = ssh_client.run("sed -i '58s{.*{#stagecores{' "+c.SPARK_HOME + "conf/spark-defaults.conf")
+            stdout, stderr, status = ssh_client.run("sed -i '59s{.*{#stagedeadlines{' " + c.SPARK_HOME + "conf/spark-defaults.conf")
+        
         # CHANGE ALSO IN MASTER FOR THE LOGS
         stdout, stderr, status = ssh_client.run(
             "sed -i '43s{.*{spark.control.tsample " + str(
@@ -476,7 +542,7 @@ def setup_master(node, slaves_ip, hdfs_master):
         stdout, stderr, status = ssh_client.run(
             "sed -i '50s{.*{spark.control.coremin " + str(
             c.CORE_MIN) + "{' " + c.SPARK_HOME + "conf/spark-defaults.conf")
-        '''
+        
         stdout, stderr, status = ssh_client.run(
             "sed -i '54s{.*{spark.control.inputrecord " + str(
                 c.INPUT_RECORD) + "{' " + c.SPARK_HOME + "conf/spark-defaults.conf")
@@ -484,15 +550,121 @@ def setup_master(node, slaves_ip, hdfs_master):
         stdout, stderr, status = ssh_client.run(
             "sed -i '55s{.*{spark.control.numtask " + str(
                 c.NUM_TASK) + "{' " + c.SPARK_HOME + "conf/spark-defaults.conf")
-        '''
+        
+        stdout, stderr, status = ssh_client.run("""sed -i '3s{.*{master=""" + master_private_ip +
+                       """{' ./spark-bench/conf/env.sh""")
+        stdout, stderr, status = ssh_client.run("""sed -i '63s{.*{NUM_TRIALS=""" + str(c.BENCH_NUM_TRIALS) +
+                       """{' ./spark-bench/conf/env.sh""")
+        
+        # CHANGE SPARK HOME DIR
+        stdout, stderr, status = ssh_client.run("sed -i '21s{.*{SPARK_HOME_DIR = \"" + c.SPARK_HOME + "\"{' ./spark-perf/config/config.py")
+        
+        # CHANGE MASTER ADDRESS IN BENCHMARK
+        stdout, stderr, status = ssh_client.run("""sed -i '30s{.*{SPARK_CLUSTER_URL = "spark://""" + master_private_ip +
+                       """:7077"{' ./spark-perf/config/config.py""")
+      
         # CHANGE RAM DRIVER
         stdout, stderr, status = ssh_client.run(
             """sed -i '26s{.*{spark.driver.memory """ + c.RAM_DRIVER + """{' """ + c.SPARK_HOME + """conf/spark-defaults.conf""")
         stdout, stderr, status = ssh_client.run(
             """sed -i '28s{.*{spark.driver.maxResultSize """ + c.RAM_DRIVER_MAX_RESULT_SIZE + """{' """ + c.SPARK_HOME + """conf/spark-defaults.conf""")
+        stdout, stderr, status = ssh_client.run(
+            "sed -i '154s{.*{SPARK_DRIVER_MEMORY = \""+c.RAM_DRIVER+"\"{' ./spark-perf/config/config.py")
+        
+        # CHANGE SCALE FACTOR LINE 127
+        stdout, stderr, status = ssh_client.run(
+            "sed -i '127s{.*{SCALE_FACTOR = " + str(c.SCALE_FACTOR) + "{' ./spark-perf/config/config.py")
+        
+        # CHANGE IGNORE_TRIALS LINE 134
+        stdout, stderr, status = ssh_client.run(
+            "sed -i '134s{.*{IGNORED_TRIALS = " + str(c.IGNORED_TRIALS) + "{' ./spark-perf/config/config.py")
+        
+        # NO PROMPT
+        stdout, stderr, status = ssh_client.run("sed -i '103s{.*{PROMPT_FOR_DELETES = False{' ./spark-perf/config/config.py")
+        if len(c.BENCHMARK_PERF) > 0:  # and c.SPARK_PERF_FOLDER == "spark-perf-gioenn":
+            if c.SKEW_TEST:
+                print("   Setting up skewed test")
+                ssh_client.run("""sed -i '169s{.*{    OptionSet("skew", [""" + str(
+                    c.BENCH_CONF[c.BENCHMARK_PERF[0]]["skew"]) + """]),{' ./""" + c.SPARK_PERF_FOLDER + "/config/config.py")
+            else:
+                # Restore "no-skew test" line content
+                ssh_client.run("""sed -i '169s{.*{# The number of input partitions.{' ./""" + c.SPARK_PERF_FOLDER + "/config/config.py")
+            
+            # ssh_client.run("""sed -i '164s{.*{OptionSet("skew", [""" + str(
+            #     c.BENCH_CONF[c.BENCHMARK_PERF[0]]["skew"]) + """]){' ./""" + c.SPARK_PERF_FOLDER + "/config/config.py")
+            
+            print("   Setting up num_trials")
+            ssh_client.run("""sed -i '160s{.*{    OptionSet("num-trials", [1]),{' ./""" + c.SPARK_PERF_FOLDER + "/config/config.py")
+            
+            print("   Setting up unique-keys, num-partitions and reduce-tasks")
+            ssh_client.run("""sed -i '185s{.*{OptionSet("unique-keys",[""" + str(c.BENCH_CONF[c.BENCHMARK_PERF[0]][
+                                                                                     "unique-keys"]) + """], False),{' ./""" + c.SPARK_PERF_FOLDER + "/config/config.py")
+            ssh_client.run("""sed -i '170s{.*{OptionSet("num-partitions", [""" + str(c.BENCH_CONF[c.BENCHMARK_PERF[0]][
+                                                                                         "num-partitions"]) + """], can_scale=False),{' ./""" + c.SPARK_PERF_FOLDER + "/config/config.py")
+            ssh_client.run("""sed -i '172s{.*{OptionSet("reduce-tasks", [""" + str(c.BENCH_CONF[c.BENCHMARK_PERF[0]][
+                                                                                       "reduce-tasks"]) + """], can_scale=False),{' ./""" + c.SPARK_PERF_FOLDER + "/config/config.py")        
+        
         # CHANGE RAM EXEC
+        stdout, stderr, status =  ssh_client.run(
+            """sed -i '146s{.*{    JavaOptionSet("spark.executor.memory", [""" + c.RAM_EXEC + """]),{' ./spark-perf/config/config.py""")
         stdout, stderr, status = ssh_client.run(
             """sed -i '41s{.*{SPARK_EXECUTOR_MEMORY=""" + c.RAM_EXEC + """{' """ + c.SPARK_HOME + """conf/spark-env.sh""")
+        
+        # CHANGE RAM DRIVER
+        stdout, stderr, status = ssh_client.run(
+            "sed -i '26s{.*{spark.driver.memory " + c.RAM_DRIVER + "{' " + c.SPARK_HOME + "conf/spark-defaults.conf")
+
+        stdout, stderr, status = ssh_client.run(
+            "sed -i '154s{.*{SPARK_DRIVER_MEMORY = \""+c.RAM_DRIVER+"\"{' ./spark-perf/config/config.py")
+
+
+        print("   Enabling/Disabling Benchmark")
+        # ENABLE BENCHMARK
+        for bench in c.BENCHMARK_PERF:
+            for line_number in c.BENCH_LINES[bench]:
+                sed_command_line = "sed -i '" + line_number + " s/[#]//g' ./spark-perf/config/config.py"
+                ssh_client.run(sed_command_line)
+
+        # DISABLE BENCHMARK
+        for bench in c.BENCH_LINES:
+            if bench not in c.BENCHMARK_PERF:
+                for line_number in c.BENCH_LINES[bench]:
+                    ssh_client.run("sed -i '" + line_number + " s/^/#/' ./spark-perf/config/config.py")
+
+        # ENABLE HDFS
+        # if c.HDFS:
+        print("   Enabling HDFS in benchmarks")
+        stdout, stderr, status = ssh_client.run("sed -i '179s%memory%hdfs%g' ./spark-perf/config/config.py")
+
+    #if hdfs_master != "":
+        stdout, stderr, status = ssh_client.run(
+            """sed -i  '50s%.*%HDFS_URL = "hdfs://{0}:9000/test/"%' ./spark-perf/config/config.py""".format(
+                hdfs_master))
+        stdout, stderr, status = ssh_client.run(
+            """sed -i  '10s%.*%HDFS_URL="hdfs://{0}:9000"%' ./spark-bench/conf/env.sh""".format(
+                hdfs_master))
+        stdout, stderr, status = ssh_client.run(
+            """sed -i  '14s%.*%DATA_HDFS="hdfs://{0}:9000/SparkBench"%' ./spark-bench/conf/env.sh""".format(
+                hdfs_master))
+
+        # TODO: additional settings for spark-bench
+        # ssh_client.run("""sed -i '8s/.*//' ./spark-bench/conf/env.sh""")
+        stdout, stderr, status = ssh_client.run("""sed -i '8s{.*{[ -z "$HADOOP_HOME" ] \&\&     export HADOOP_HOME="""+c.HADOOP_HOME+"""{' ./spark-bench/conf/env.sh""")
+        # slaves = slaves_ip[0]
+        # for slave in slaves_ip[1:]:
+        #     slaves = slaves + ", " + slave
+
+        stdout, stderr, status = ssh_client.run(
+            """sed -i  '5s%.*%MC_LIST=()%' ./spark-bench/conf/env.sh""")
+
+        stdout, stderr, status = ssh_client.run(
+            """sed -i  '19s%.*%SPARK_VERSION=2.0%' ./spark-bench/conf/env.sh""")
+
+        # ssh_client.run("""sed -i '20s/.*//' ./spark-bench/conf/env.sh""")
+        stdout, stderr, status = ssh_client.run("""sed -i '20s{.*{[ -z "$SPARK_HOME" ] \&\&     export SPARK_HOME="""+c.SPARK_HOME+"""{' ./spark-bench/conf/env.sh""")
+
+                
+        
         # SET HADOOP CONF DIR
         stdout, stderr, status = ssh_client.run(
             """sed -i '25s{.*{HADOOP_CONF_DIR=""" + c.HADOOP_CONF + """{' """ + c.SPARK_HOME + """conf/spark-env.sh""")
@@ -525,7 +697,7 @@ def setup_master(node, slaves_ip, hdfs_master):
     # To be changed: generalize private and public key paths references (currently the Azure ones)
     with open_cfg() as cfg:
         tool_on_master = cfg.getboolean('main', 'tool_on_master')
-    if current_cluster == 'spark' and c.PROCESS_ON_SERVER: #vboxvm
+    if current_cluster == 'spark' and c.PROCESS_ON_SERVER:
         if not tool_on_master:
             if c.INSTALL_PYTHON3 == 1:
                 stdout, stderr, status = ssh_client.run("sudo apt-get update && sudo apt-get install -y python3-pip && " +
@@ -594,7 +766,7 @@ def setup_master(node, slaves_ip, hdfs_master):
             stdout, stderr, status = ssh_client.run("cd /home/ubuntu/xSpark-dagsymb && " +
                                                     "sudo pip3 install -r requirements.txt")
             """Install xSpark-dagsymb tool requirements"""
-            print("Installing xSpark-benchmark tool requirements\n" + stdout)    
+            print("Installing xSpark-dagsymb tool requirements\n" + stdout)    
         
         ssh_client.run("sudo rm /home/ubuntu/xSpark-dagsymb/cfg_clusters.ini")
         ssh_client.put(localpath="cfg_clusters.ini", remotepath="/home/ubuntu/xSpark-dagsymb/cfg_clusters.ini")
@@ -763,6 +935,7 @@ def run_symexapp(nodes):
     profile = False
     profile_fname = ""
     profile_option = False
+    benchmark = ""
     app_name = ""
     app_jar = ""
     app_class = ""
@@ -778,6 +951,8 @@ def run_symexapp(nodes):
             c.config_experiment(exp_filepath, cfg)  
         
         setup = True if 'main' in cfg and 'setup' in cfg['main'] else False
+        benchmark = cfg['main']['benchmark'] if 'main' in cfg and 'benchmark' in cfg['main'] else \
+                    cfg['experiment']['benchmarkname'] if 'experiment' in cfg and 'benchmarkname' in cfg['experiment'] else ''
         app_name = cfg['main']['app_name'] if 'main' in cfg and 'app_name' in cfg['main'] else "app"
         meta_profile_name = cfg['experiment']['meta_profile_name'] if 'experiment' in cfg and 'meta_profile_name' in cfg['experiment'] else ""
         app_jar = cfg['main']['app_jar'] if 'main' in cfg and 'app_jar' in cfg['main'] else "app.jar"
@@ -802,13 +977,18 @@ def run_symexapp(nodes):
         c.cfg_dict["MaxExecutor"] = c.CONFIG_DICT["Control"]["MaxExecutor"] = c.MAX_EXECUTOR
         #c.CONFIG_DICT["Control"]["MaxExecutor"] = c.MAX_EXECUTOR
         #c.cfg_dict["ConfigDict"] = c.CONFIG_DICT
+        if 'main' in cfg and 'benchmark' in cfg['main']:
+            c.config_benchmark(benchmark, cfg)
         if 'main' in cfg and 'app_name' in cfg['main']:
             c.config_app(app_name, cfg)
         profile = True if 'profile' in cfg else False
         print("profile mode set to " + str(profile))
         profile_option = cfg.getboolean('main', 'profile') if 'main' in cfg and 'profile' in cfg['main'] else False
+        print("benchmark: " + benchmark)
         print("app_name: " + app_name)
-        profile_fname = cfg['main']['app_name'] if profile and 'main' in cfg and 'app_name' in cfg['main'] else ""
+        profile_fname = cfg[benchmark]['profile_name'] \
+            if profile and benchmark in cfg and 'profile_name' in cfg[benchmark] \
+            else cfg['main']['app_name'] if profile and 'main' in cfg and 'app_name' in cfg['main'] else ""
         print("profile filename set to: " + profile_fname)
         if profile:
             c.SPARK_HOME = c.SPARK_SEQ_HOME if cfg.getboolean('profile', 'spark_seq') else c.SPARK_2_HOME
@@ -824,18 +1004,18 @@ def run_symexapp(nodes):
     #end debug lines
     master_ip, master_node = setup_master(nodes[0], slaves_ip, hdfs_master_private_ip)
     
-    print("MASTER: " + master_ip)   #vboxvm remove
-    ssh_client = sshclient_from_node(master_node, c.PRIVATE_KEY_PATH, user_name='ubuntu') #vboxvm remove
+    print("MASTER: " + master_ip)
+    ssh_client = sshclient_from_node(master_node, c.PRIVATE_KEY_PATH, user_name='ubuntu')
     
     if profile and profile_fname != "":
         # delete selected app_name profile file
-        print("Deleting " + app_name + " app_name reference profile: " + profile_fname + ".json\n")
+        print("Deleting " + benchmark + app_name + " reference profile: " + profile_fname + ".json\n")
         stdout, stderr, status = ssh_client.run("sudo rm " + c.C_SPARK_HOME + "conf/" + profile_fname + ".json")
-        # print(stdout + stderr) 
+        print(stdout + stderr) 
           
     if c.SPARK_HOME == c.SPARK_2_HOME:
         print("Check Effectively Executor Running")
-    #vboxvm_removed
+    
     count = 1
     with ThreadPoolExecutor(8) as executor:
         for i in nodes[1:end_index]:
@@ -869,81 +1049,76 @@ def run_symexapp(nodes):
 
     time.sleep(15)
 
-    print("MASTER: " + master_ip)   #vboxvm add
-    ssh_client = sshclient_from_node(master_node, c.PRIVATE_KEY_PATH, user_name='ubuntu') #vboxvm add
+    print("MASTER: " + master_ip)
+    ssh_client = sshclient_from_node(master_node, c.PRIVATE_KEY_PATH, user_name='ubuntu')
 
     # LANCIARE app_name
     
     if current_cluster == 'spark' and not setup :
-        ''' 
-        if len(c.app_name_PERF) > 0:
-            if delete_hdfs:
-                print("   Cleaning HDFS...")
-                print("connecting to hdfs_master:{}".format(hdfs_master_public_ip))
-                ssh_client_hdfs = sshclient_from_ip(hdfs_master_public_ip, c.PRIVATE_KEY_PATH, user_name='ubuntu')
-                out, err, status = ssh_client_hdfs.run(
-                    "/usr/local/lib/hadoop-2.7.2/bin/hadoop fs -rm -R /test/spark-perf-kv-data")
-                print(out, err, status)
-            print("Running app_name " + str(c.app_name_PERF))
-            runout, runerr, runstatus = ssh_client.run(
-                'export SPARK_HOME="' + c.SPARK_HOME + '" && ./spark-perf/bin/run')
-            print('runout\n{}\nrunerr:\n{}\runstatus:{}'.format(runout, runerr, runstatus))
-
-            # FIND APP LOG FOLDER
-            print("Finding log folder")
-            app_log = between(runout, "2>> ", ".err")
-            logfolder = "/home/ubuntu/" + "/".join(app_log.split("/")[:-1])
-            print(logfolder)
-            # output_folder = logfolder[1:] # this is the canonical name
-            output_folder = "home/ubuntu/spark-bench/num/" # this is to match where current version log-processing searches for app logfiles 
-        '''
-        '''    
-        if  profile and profile_fname != "" :
-            # delete selected app_name profile file
-            print("Deleting " + app_name + " app_name reference profile: " + profile_fname + "\n")
-            stdout, stderr, status = ssh_client.run("sudo rm " + c.SPARK_HOME + "conf/" + profile_fname + ".json")
-        '''                
-        '''
-        for bench in c.BENCHMARK_BENCH:
-            ssh_client.run('rm -r ./spark-bench/num/*')
-            for bc in c.BENCH_CONF[bench]:
-                if bc != "NumTrials":
-                    ssh_client.run(
-                        "sed -i -r 's/ *{0} *= *.*/{0}={1}/' ./spark-bench/{2}/conf/env.sh""".format(
-                            bc, c.BENCH_CONF[bench][bc], bench))
-                        #"sed -i '{0}s/.*/{1}={2}/' ./spark-bench/{3}/conf/env.sh""".format(
-                        #    c.BENCH_CONF[bench][bc][0], bc, c.BENCH_CONF[bench][bc][1],
-                        #    bench))
-
-            if delete_hdfs:
-                print("Generating Data benchmark " + bench)
-                ssh_client.run(
-                    'eval `ssh-agent -s` && ssh-add ' + "$HOME/" + c.PRIVATE_KEY_NAME + ' && export SPARK_HOME="' + c.SPARK_HOME + '" && ./spark-bench/' + bench + '/bin/gen_data.sh')
-
-            check_slave_connected_master(ssh_client) #vboxvm_removed
-            print("Running benchmark " + bench)
-            ssh_client.run(                                                                                                                                                  #vboxvm_removed
-               'eval `ssh-agent -s` && ssh-add ' + "$HOME/" + c.PRIVATE_KEY_NAME + ' && export SPARK_HOME="' + c.SPARK_HOME + '" && ./spark-bench/' + bench + '/bin/run.sh') #vboxvm_removed
-            logfolder = "/home/ubuntu/spark-bench/num"
+        if benchmark != '' and app_name == '' : #run benchmark
+            if len(c.BENCHMARK_PERF) > 0:
+                if delete_hdfs:
+                    print("   Cleaning HDFS...")
+                    print("connecting to hdfs_master:{}".format(hdfs_master_public_ip))
+                    ssh_client_hdfs = sshclient_from_ip(hdfs_master_public_ip, c.PRIVATE_KEY_PATH, user_name='ubuntu')
+                    out, err, status = ssh_client_hdfs.run(
+                        "/usr/local/lib/hadoop-2.7.2/bin/hadoop fs -rm -R /test/spark-perf-kv-data")
+                    print(out, err, status)
+                print("Running Benchmark " + str(c.BENCHMARK_PERF))
+                runout, runerr, runstatus = ssh_client.run(
+                    'export SPARK_HOME="' + c.SPARK_HOME + '" && ./spark-perf/bin/run')
+                print('runout\n{}\nrunerr:\n{}\runstatus:{}'.format(runout, runerr, runstatus))
+    
+                # FIND APP LOG FOLDER
+                print("Finding log folder")
+                app_log = between(runout, "2>> ", ".err")
+                logfolder = "/home/ubuntu/" + "/".join(app_log.split("/")[:-1])
+                print(logfolder)
+                # output_folder = logfolder[1:] # this is the canonical name
+                output_folder = "home/ubuntu/spark-bench/num/" # this is to match where current version log-processing searches for app logfiles 
             
-            output_folder = "home/ubuntu/spark-bench/num/"
-        '''
-        if delete_hdfs:
-            gen_data_option = "-gendata"   
-        check_slave_connected_master(ssh_client)
-        print("Running application " + app_name + " with gen_data_option = '" + gen_data_option + "'")
-        sc_app_name = meta_profile_name if c.HEURISTIC.value == 3 else app_name
-        stdout, stderr, status = ssh_client.run(                                                                                                                                                  
-           'eval `ssh-agent -s` && ssh-add ' + "$HOME/" + c.PRIVATE_KEY_NAME + ' && export SPARK_HOME="' + c.SPARK_HOME + 
-           '" && /usr/local/spark/bin/spark-submit --master spark://' + master_ip + ':7077' +
-                                          ' --class ' + app_class + #it.polimi.deepse.dagsymb.launchers.Launcher ' +
-                                          ' --conf spark.eventLog.enabled=true ' + app_jar + #./dagsymb/target/dagsymb-1.0-jar-with-dependencies.jar ' +
-                                          ' ' + guard_evaluator_class + #'it.polimi.deepse.dagsymb.examples.GuardEvaluatorPromoCallsFile' + 
-                                          ' ' + child_args_string + 
-                                          ' ' + gen_data_option +  
-                                          ' ' + sc_app_name + ' > ' + c.SPARK_HOME + 'logs/app.dat 2>&1 ') #it.polimi.deepse.dagsymb.examples.GuardEvaluatorPromoCallsFile 2003 2003 1610 1614 2990 3000 1006 1006 1006 2') 
-                                          #' it.polimi.deepse.dagsymb.examples.GuardEvaluatorPromoCallsFile 2003 2003 1610 1614 2990 3000 1006 1006 1006 2') 
-        print(stderr + stdout)
+            for bench in c.BENCHMARK_BENCH:
+                ssh_client.run('rm -r ./spark-bench/num/*')
+                for bc in c.BENCH_CONF[bench]:
+                    if bc != "NumTrials":
+                        ssh_client.run(
+                            "sed -i -r 's/ *{0} *= *.*/{0}={1}/' ./spark-bench/{2}/conf/env.sh""".format(
+                                bc, c.BENCH_CONF[bench][bc], bench))
+                            #"sed -i '{0}s/.*/{1}={2}/' ./spark-bench/{3}/conf/env.sh""".format(
+                            #    c.BENCH_CONF[bench][bc][0], bc, c.BENCH_CONF[bench][bc][1],
+                            #    bench))
+    
+                if delete_hdfs:
+                    print("Generating Data Benchmark " + bench)
+                    ssh_client.run(
+                        'eval `ssh-agent -s` && ssh-add ' + "$HOME/" + c.PRIVATE_KEY_NAME + ' && export SPARK_HOME="' + c.SPARK_HOME + '" && ./spark-bench/' + bench + '/bin/gen_data.sh')
+    
+                check_slave_connected_master(ssh_client) #vboxvm_removed
+                print("Running Benchmark " + bench)
+                ssh_client.run(                                                                                                                                                  #vboxvm_removed
+                   'eval `ssh-agent -s` && ssh-add ' + "$HOME/" + c.PRIVATE_KEY_NAME + ' && export SPARK_HOME="' + c.SPARK_HOME + '" && ./spark-bench/' + bench + '/bin/run.sh') #vboxvm_removed
+                logfolder = "/home/ubuntu/spark-bench/num"
+                
+                output_folder = "home/ubuntu/spark-bench/num/"
+                
+        elif benchmark == '' and app_name != '' : # run symex           
+            if delete_hdfs:
+                gen_data_option = "-gendata"   
+            check_slave_connected_master(ssh_client)
+            print("Running application " + app_name + " with gen_data_option = '" + gen_data_option + "'")
+            sc_app_name = meta_profile_name if c.HEURISTIC.value == 3 else app_name
+            stdout, stderr, status = ssh_client.run(                                                                                                                                                  
+               'eval `ssh-agent -s` && ssh-add ' + "$HOME/" + c.PRIVATE_KEY_NAME + ' && export SPARK_HOME="' + c.SPARK_HOME + 
+               '" && /usr/local/spark/bin/spark-submit --master spark://' + master_ip + ':7077' +
+                                              ' --class ' + app_class + #it.polimi.deepse.dagsymb.launchers.Launcher ' +
+                                              ' --conf spark.eventLog.enabled=true ' + app_jar + #./dagsymb/target/dagsymb-1.0-jar-with-dependencies.jar ' +
+                                              ' ' + guard_evaluator_class + #'it.polimi.deepse.dagsymb.examples.GuardEvaluatorPromoCallsFile' + 
+                                              ' ' + child_args_string + 
+                                              ' ' + gen_data_option +  
+                                              ' ' + sc_app_name + ' > ' + c.SPARK_HOME + 'logs/app.dat 2>&1 ') #it.polimi.deepse.dagsymb.examples.GuardEvaluatorPromoCallsFile 2003 2003 1610 1614 2990 3000 1006 1006 1006 2') 
+                                              #' it.polimi.deepse.dagsymb.examples.GuardEvaluatorPromoCallsFile 2003 2003 1610 1614 2990 3000 1006 1006 1006 2') 
+            print(stderr + stdout)
+        
         #logfolder = "/home/ubuntu/dagsymb/num"
         logfolder = c.SPARK_HOME + "logs"
         output_folder = "home/ubuntu/dagsymb/num"
@@ -1007,7 +1182,7 @@ def run_symexapp(nodes):
             #for dir in ["avg_json", "input_logs", "output_json", "processed_logs", "processed_profiles"]: 
             with open_cfg() as cfg:
                 if profile and 'main' in cfg and 'iter_num' in cfg['main'] \
-                           and 'num_run' in cfg['main'] and 'app_name' in cfg['experiment'] \
+                           and 'num_run' in cfg['main'] and ('app_name' in cfg['experiment'] or 'benchmark' in cfg['main']) \
                            and 'experiment_num' in cfg['main'] and 'num_experiments' in cfg['main'] \
                            and int(cfg['main']['iter_num']) == int(cfg['main']['num_run']) \
                            or profile_option:
@@ -1051,4 +1226,3 @@ def run_symexapp(nodes):
                     print("Compute metrics failed: ", e)
 
         print("\nCHECK VALUE OF SCALE FACTOR AND PREV SCALE FACTOR FOR HDFS CASE")
-        

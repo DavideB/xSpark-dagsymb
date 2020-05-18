@@ -73,7 +73,7 @@ class BenchInstance(object):
                 self.retrieve_nodes()
                 with utils.open_cfg(mode='w') as cfg:
                     cfg['main']['iter_num']= str(i + 1)
-                x_run.run_symexapp(self.nodes)
+                    x_run.run_symexapp(self.nodes)    
                 if i == 0:
                     with utils.open_cfg(mode='w') as cfg:
                         cfg['main']['delete_hdfs'] = 'false'
