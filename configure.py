@@ -60,7 +60,7 @@ class Config(object):
     C_SPARK_HOME = "/usr/local/spark/"      # "controlled" spark home directory
     SPARK_HOME = C_SPARK_HOME               # Location of Spark in the ami"""
     LOG_LEVEL = "INFO"                      # Spark log verbosity level
-    GIT_XSPARK_REPO = "https://github.com/gioenn/dynaSpark.git" # "https://github.com/DavideB/xSpark.git"                   # "https://github.com/gioenn/xSpark.git"
+    GIT_XSPARK_REPO = "https://github.com/DavideB/xSpark.git" # https://github.com/gioenn/dynaSpark.git" # "https://github.com/DavideB/xSpark.git"                   # "https://github.com/gioenn/xSpark.git"
     GIT_XSPARK_BRANCH = "bench+symb"# "symex_0.6"        #"symex_0.5"         # was "xSpark-1.0"
     GIT_XSPARK_DAGSYMB_REPO =  "https://github.com/gioenn/dynaSpark-launcher.git" # "https://github.com/DavideB/xSpark-dagsymb.git"   # "https://github.com/gioenn/xSpark-dagsymb.git"
     GIT_XSPARK_DAGSYMB_BRANCH = "stable" # "master"

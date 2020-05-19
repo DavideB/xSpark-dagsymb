@@ -56,6 +56,13 @@ def common_setup(ssh_client):
             ssh_client.run("sudo usermod -aG docker $USER")
 
             ssh_client.run("mkdir /usr/local/spark/spark-events")
+            
+            # Ensure Maven is globally set to access Maven Central repositories using https protocol (mandatory since January 15, 2020)
+            ssh_client.run("sudo rm  /home/ubuntu/maven_settings.xml")
+            ssh_client.put(localpath="./maven_settings.xml", remotepath="/home/ubuntu/maven_settings.xml")
+            ssh_client.run("sudo mv /etc/maven/settings.xml /etc/maven/settings.xml.backup")
+            ssh_client.run("sudo rm /etc/maven/settings.xml")
+            ssh_client.run("sudo mv /home/ubuntu/maven_settings.xml /etc/maven/settings.xml")
 
             # ssh_client.run("sudo chmod -R 777 /mnt")
 
