@@ -960,7 +960,7 @@ def run_symexapp(nodes):
         setup = True if 'main' in cfg and 'setup' in cfg['main'] else False
         benchmark = cfg['main']['benchmark'] if 'main' in cfg and 'benchmark' in cfg['main'] else \
                     cfg['experiment']['benchmarkname'] if 'experiment' in cfg and 'benchmarkname' in cfg['experiment'] else ''
-        app_name = cfg['main']['app_name'] if 'main' in cfg and 'app_name' in cfg['main'] else "app"
+        app_name = cfg['main']['app_name'] if 'main' in cfg and 'app_name' in cfg['main'] else "" # "app"
         meta_profile_name = cfg['experiment']['meta_profile_name'] if 'experiment' in cfg and 'meta_profile_name' in cfg['experiment'] else ""
         app_jar = cfg['main']['app_jar'] if 'main' in cfg and 'app_jar' in cfg['main'] else "app.jar"
         app_class = cfg['main']['app_class'] if 'main' in cfg and 'app_class' in cfg['main'] else "Main"
